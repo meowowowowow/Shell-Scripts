@@ -1,0 +1,112 @@
+#!/usr/bin/bash
+#f
+#
+
+help(){
+cat <<-EOF
+	-a,--address     输入IP地址
+	-n,--name	 输入虚拟机名字
+	-p,--port	 输入端口号
+
+	注意，使用此脚本前必须有模板机，并修改相应的变量！
+EOF
+}
+
+TEMPLATE_MACHINES="centos"
+VM_DISK="centos.qcow2"
+DISK_PATH="/kvm/vdisks/"
+MOUNT_POINT="/vm/"
+CONFIG_PATH="/etc/libvirt/qemu/"
+
+clone(){
+	#复制模板机磁盘所有数据
+	qemu-img create -f qcow2 -b ${DISK_PATH}${VM_DISK} ${DISK_PATH}${NAME}.qcow2
+	#创建挂载点目录
+	mkdir -p ${MOUNT_POINT}${NAME}
+	#进行挂载
+	guestmount -a ${DISK_PATH}${NAME}.qcow2 -m /dev/centos/root ${MOUNT_POINT}${NAME}/
+
+	#修改新虚拟机网络配置	
+	sed -i "s/.*/${NAME}/g"  ${MOUNT_POINT}${NAME}/etc/hostname
+	sed -i "3i\IPADDR=${IP}" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
+	sed -i "/UUID.*/d" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
+	sed -i "s/ONBOOT=no/ONBOOT=yes/g" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
+	sed -i "s/BOOTPROTO=dhcp/BOOTPROTO=none/g" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0	
+
+	#取消挂载并删除挂载目录
+	umount ${MOUNT_POINT}${NAME}
+	rm -rf ${MOUNT_POINT}${NAME}
+
+	#复制配置文件
+	cp "${CONFIG_PATH}${TEMPLATE_MACHINES}.xml" "${CONFIG_PATH}${NAME}.xml"
+
+	#修改新虚拟机名称和删除uuid行，防止重复uuid导致报错
+	OLD_NAME=$(grep "<name>" ${CONFIG_PATH}${TEMPLATE_MACHINES}.xml | cut -d'>' -f2 |cut -d'<' -f1)
+	sed -i "s/${OLD_NAME}/${NAME}/" ${CONFIG_PATH}${NAME}.xml
+	sed -i "/<uuid>/d" ${CONFIG_PATH}${NAME}.xml
+	sed -i "s/port='5900'/port='${PORT}'/" ${CONFIG_PATH}${NAME}.xml
+	sed -i "s/raw/qcow2/g" ${CONFIG_PATH}${NAME}.xml
+
+	#将新虚拟机添加到管理器中，管理器会自动生成一些配置，例如UUID
+	virsh define ${CONFIG_PATH}${NAME}.xml
+	virsh start $NAME
+	
+	if [ $? -eq 0 ];then
+		echo "成功创建新虚拟机："
+		echo "虚拟机名称：${NAME}"
+		echo "虚拟机IP：${IP}"
+		echo "运行端口：${PORT}"
+	fi
+}
+
+while [[ $# -gt 0 ]];do
+	case $1 in
+		-a|--address)
+		shift
+		 	for i in {1..4}
+			do
+				ip_num=$(echo $1 | cut -d. -f${i})
+				if [ $ip_num -gt 254 ] || [ $ip_num -lt 1 ];then
+					echo "输入的IP地址不合法！请输入1~254之间的数字!"
+					exit 11
+				fi
+			done 
+			ping -c3 $1 &>/dev/null
+			if [ $? -eq 0 ];then
+				echo "该IP已经被占用，请重新输入！"
+				exit 12
+			fi
+			IP=$1
+		;;
+		-n|--name)	
+		shift
+			virsh list --all | grep $1 &>/dev/null
+			if [ $? -eq 0 ];then
+				echo "已经有虚拟机起这个名字，请重新输入！"
+				exit 21
+			fi
+			NAME=$1	
+		;;
+		-p|port)
+		shift
+			ss -antup | grep ":22" &>/dev/null
+			if [ $? -eq 0 ] && [ $1 -lt 5900 ];then
+				echo "端口被占用或者端口号小于5900！"
+				exit 31
+			fi
+			PORT=$1
+		;; 
+		-h|--help)
+			echo "help"
+			help
+			exit
+		;;
+		*)
+			echo "不合法！"
+			exit
+		;;
+	esac
+	shift
+done
+
+clone

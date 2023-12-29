@@ -1,0 +1,107 @@
+#!/usr/bin/bash
+#
+#
+
+NAME=""
+IP=""
+PORT=""
+VM_DISK_DIR="/kvm/vdisks/"
+DISK_TYPE="qcow2"
+DISK_SIZE=5
+ISO_DIR="/kvm/isos/CentOS-7-x86_64-Minimal-2009.iso"
+OS_VERSION="rhel7"
+NET_BRIDGE="br0"
+CPU_CORE="2"
+MEM="2048"
+MOUNT_POINT="/vm/"
+VM_ROOT="/dev/centos/root"
+
+help(){
+ echo "Usage: createvm [options]"
+    echo "Options:"
+    echo "  -h, --help            显示帮助"
+    echo "  -a, --address         设置IP地址"
+    echo "  -p, --port            设置VNC端口"
+    echo "  -n, --name            设置虚拟机名"
+    echo "此脚本用于创建模板虚拟机，然后用vmclone 脚本实现快速创建虚拟机！"
+    echo "Exit Status:"
+    echo "  0     Success"
+    echo "  1404  General problem (e.g., invalid options)"
+    echo "  2403  Serious problem (e.g., incorrect parameter values)"	
+}
+
+create(){
+	#创建新磁盘以容纳虚拟机
+	qemu-img create -f ${DISK_TYPE} ${VM_DISK_DIR}${NAME}.${DISK_TYPE} ${DISK_SIZE}G
+	if [ $? -ne 0 ];then
+		echo "创建虚拟磁盘失败，请稍后再试，或者检查目录:/kvm/vdisks/"
+		exit 1
+	fi
+	
+	#创建虚拟机
+	virt-install --name=${NAME} --vcpus=${CPU_CORE} --memory=${MEM} --disk=${VM_DISK_DIR}${NAME}.${DISK_TYPE} --cdrom=${ISO_DIR} --os-variant=${OS_VERSION} --noautoconsole --autostart --network bridge=${NET_BRIDGE} --graphics vnc,listen=0.0.0.0,port=${PORT}
+	if [ $? -ne 0 ];then
+		echo "成功创建虚拟机 ${NAME}，端口:${PORT} !"	
+	fi
+}
+
+while [[ $# -gt 0 ]];do
+	case $1 in
+		-a|--address)
+			shift
+			for i in {1..4}
+			do
+				if [ $(echo $1 | cut -d'.' -f$i) -gt 254 ];then
+				echo "输入的IP不合法！请输入255以内的IP"
+				exit 11
+				fi
+			done
+			ping -c3 $1 &>/dev/null
+			if [ $? -eq 0 ];then
+				echo "$1 已经被占用！请换一个IP！"
+				exit 12
+			fi
+			IP=$1		
+		;;
+		
+		-n|--name)
+			shift
+			virsh list --all | grep $1 $>/dev/null
+			if [ $? -eq 0 ];then
+				echo "已经有此虚拟机，请改完名字后重新尝试！"
+				exit 22
+			fi
+			NAME=$1
+		;;
+	
+		-p|--port)
+			shift
+			if [ $1 -lt 5899 ];then
+				echo "输入的端口号不能小于5900！"
+				exit 33
+			fi
+			ss -anptu | grep ":$1" &>/dev/null
+			if [ $? -eq 0 ];then
+				echo "此端口以及被占用!请换一个端口！"
+				exit 44
+			fi
+			PORT=$1
+		;;
+		
+		-h|--help)
+			help
+			exit 0
+		;;
+	
+		*)
+		echo "参数有误！请使用vmcreate -h 获取帮助信息"
+		;;
+	esac	
+	shift
+done
+
+if [ -z "${IP}" ] || [ -z "${NAME}" ] || [ -z "${PORT}" ];then
+	echo "错误！端口或者名称或者IP为空！"
+	exit 99
+fi
+create
