@@ -21,7 +21,7 @@ yum clean all
 yum makecache fast
 yum remove epel-release -y
 yum install epel-release -y
-yum install wget lrzsz net-tools vim git htop iotop dstat iptraf python3 python3-devel lsof ntp unzip -y
+yum install wget lrzsz net-tools vim git htop iotop python3 python3-devel lsof ntp unzip -y
 
 if [ $? -eq 0 ];then
 	yum_repo="Yum source configure successful!"

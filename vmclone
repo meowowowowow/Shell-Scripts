@@ -17,10 +17,11 @@ VM_DISK="centos.qcow2"
 DISK_PATH="/kvm/vdisks/"
 MOUNT_POINT="/vm/"
 CONFIG_PATH="/etc/libvirt/qemu/"
+DISK_SIZE=5
 
 clone(){
 	#复制模板机磁盘所有数据
-	qemu-img create -f qcow2 -b ${DISK_PATH}${VM_DISK} ${DISK_PATH}${NAME}.qcow2
+	qemu-img create -f qcow2 -b ${DISK_PATH}${VM_DISK} -o size=${DISK_SIZE}.G  ${DISK_PATH}${NAME}.qcow2
 	#创建挂载点目录
 	mkdir -p ${MOUNT_POINT}${NAME}
 	#进行挂载
@@ -60,42 +61,57 @@ clone(){
 }
 
 while [[ $# -gt 0 ]];do
-	case $1 in
-		-a|--address)
-		shift
-		 	for i in {1..4}
-			do
-				ip_num=$(echo $1 | cut -d. -f${i})
-				if [ $ip_num -gt 254 ] || [ $ip_num -lt 1 ];then
-					echo "输入的IP地址不合法！请输入1~254之间的数字!"
-					exit 11
-				fi
-			done 
-			ping -c3 $1 &>/dev/null
-			if [ $? -eq 0 ];then
-				echo "该IP已经被占用，请重新输入！"
-				exit 12
+        case $1 in
+                -a|--address)
+                        shift
+                        for i in {1..4}
+                        do
+                                if [ $(echo $1 | cut -d'.' -f$i) -gt 254 ];then
+                                echo "输入的IP不合法！请输入255以内的IP"
+                                exit 11
+                                fi
+                        done
+                        ping -c3 $1 &>/dev/null
+                        if [ $? -eq 0 ];then
+                                echo "$1 已经被占用！请换一个IP！"
+                                exit 12
+                        fi
+                        IP=$1
+                ;;
+
+                -n|--name)
+                        shift
+                        virsh list --all | grep $1 $>/dev/null
+                        if [ $? -eq 0 ];then
+                                echo "已经有此虚拟机，请改完名字后重新尝试！"
+                                exit 22
+                        fi
+                        NAME=$1
+                ;;
+
+                -p|--port)
+                        shift
+                        if [ $1 -lt 5899 ];then
+                                echo "输入的端口号不能小于5900！"
+                                exit 33
+                        fi
+                        ss -anptu | grep ":$1" &>/dev/null
+                        if [ $? -eq 0 ];then
+                                echo "此端口以及被占用!请换一个端口！"
+                                exit 44
+                        fi
+                        PORT=$1
+                ;;
+		-ds|--disksize)
+		shift 
+			d_s=`df -Th |grep centos |  awk '{print $5}'`
+			d_m=`echo ${d_s%%G*}`
+			if [ $1 -ge $d_m ];then
+				echo "设定的新磁盘大小大于当前系统可用磁盘空间大小！"
+				exit 33
 			fi
-			IP=$1
+			DISK_SIZE=$1			
 		;;
-		-n|--name)	
-		shift
-			virsh list --all | grep $1 &>/dev/null
-			if [ $? -eq 0 ];then
-				echo "已经有虚拟机起这个名字，请重新输入！"
-				exit 21
-			fi
-			NAME=$1	
-		;;
-		-p|port)
-		shift
-			ss -antup | grep ":22" &>/dev/null
-			if [ $? -eq 0 ] && [ $1 -lt 5900 ];then
-				echo "端口被占用或者端口号小于5900！"
-				exit 31
-			fi
-			PORT=$1
-		;; 
 		-h|--help)
 			echo "help"
 			help
@@ -109,4 +125,9 @@ while [[ $# -gt 0 ]];do
 	shift
 done
 
-clone
+if [ -z "${IP}" ] || [ -z "${NAME}" ] || [ -z "${PORT}" ];then
+        echo "错误！端口或者名称或者IP为空！"
+        exit 99
+fi
+
+#clone

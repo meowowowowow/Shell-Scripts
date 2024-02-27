@@ -11,10 +11,8 @@ DISK_SIZE=5
 ISO_DIR="/kvm/isos/CentOS-7-x86_64-Minimal-2009.iso"
 OS_VERSION="rhel7"
 NET_BRIDGE="br0"
-CPU_CORE="2"
-MEM="2048"
-MOUNT_POINT="/vm/"
-VM_ROOT="/dev/centos/root"
+CPU_CORE=2
+MEM=2048
 
 help(){
  echo "Usage: createvm [options]"
@@ -39,7 +37,7 @@ create(){
 	fi
 	
 	#创建虚拟机
-	virt-install --name=${NAME} --vcpus=${CPU_CORE} --memory=${MEM} --disk=${VM_DISK_DIR}${NAME}.${DISK_TYPE} --cdrom=${ISO_DIR} --os-variant=${OS_VERSION} --noautoconsole --autostart --network bridge=${NET_BRIDGE} --graphics vnc,listen=0.0.0.0,port=${PORT}
+	virt-install --name=${NAME} --vcpus=${CPU_CORE} --memory=${MEM} --disk=${VM_DISK_DIR}${NAME}.${DISK_TYPE} --cdrom=${ISO_DIR} --os-variant=${OS_VERSION}  --network bridge=${NET_BRIDGE} --graphics vnc,listen=0.0.0.0,port=${PORT}
 	if [ $? -ne 0 ];then
 		echo "成功创建虚拟机 ${NAME}，端口:${PORT} !"	
 	fi
@@ -88,6 +86,22 @@ while [[ $# -gt 0 ]];do
 			PORT=$1
 		;;
 		
+	#	-c|--cpu)
+	#		shift
+	#		if [ $1 -lt 1 ];then
+	#			echo "输入的CPU核心数量不能小于1！"
+	#			exit
+	#		fi
+	#		CORE_NUM=$1
+	#	;;
+	#	-m|--mem)
+	#		shift
+	#		if [ $1 -lt 1024 ];then
+	#			echo "输入的内存不能小于1024MB！"
+	#			exit 
+	#		fi
+	#		MEM_NUM=$1
+	#	;;
 		-h|--help)
 			help
 			exit 0
