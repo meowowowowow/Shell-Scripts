@@ -1,14 +1,14 @@
 #!/usr/bin/bash
 
 #此处设置master各机器的主机名和IP，以及负载均衡VIP 
-d_ip=10.9.22.188:12888
+d_ip=10.9.134.88:12888
 export M1HOSTNAME="master-1"
 export M2HOSTNAME="master-2"
 export M3HOSTNAME="master-3"
-export LOADBALANCER="10.9.22.99"
-export MASTER1="10.9.22.111"
-export MASTER2="10.9.22.112"
-export MASTER3="10.9.22.113"
+export LOADBALANCER="10.9.134.99"
+export MASTER1="10.9.134.111"
+export MASTER2="10.9.134.112"
+export MASTER3="10.9.134.113"
 
 #cat <<-EOF
 #
@@ -247,14 +247,15 @@ clear_k8s(){
 
 install_calico(){
 	 cd ~/k8sconfig/binary-deploys
-       	 sed -i 's#etcd_endpoints: "http://<ETCD_IP>:<ETCD_PORT>"#etcd_endpoints: "https://'"${MASTER1}"':2379,https://'"${MASTER2}"':2379,https://'"${MASTER3}"':2379"#g' calico-etcd.yaml
+	mkdir /yaml &>/dev/null
+       	 sed 's#etcd_endpoints: "http://<ETCD_IP>:<ETCD_PORT>"#etcd_endpoints: "https://'"${MASTER1}"':2379,https://'"${MASTER2}"':2379,https://'"${MASTER3}"':2379"#g' ~/k8sconfig/binary-deploys/calico-etcd.yaml  > /yaml/calico-etcd.yaml
 	 ETCD_CA=$(cat /etc/kubernetes/pki/etcd/etcd-ca.pem | base64 | tr -d '\n')
 	 ETCD_CERT=$(cat /etc/kubernetes/pki/etcd/etcd.pem | base64 | tr -d '\n')
 	 ETCD_KEY=$(cat /etc/kubernetes/pki/etcd/etcd-key.pem | base64 | tr -d '\n')
 
-	 sed -i "s@# etcd-key: null@etcd-key: ${ETCD_KEY}@g; s@# etcd-cert: null@etcd-cert: ${ETCD_CERT}@g; s@# etcd-ca: null@etcd-ca: ${ETCD_CA}@g" calico-etcd.yaml
-	 sed -i 's#etcd_ca: ""#etcd_ca: "/calico-secrets/etcd-ca"#g; s#etcd_cert: ""#etcd_cert: "/calico-secrets/etcd-cert"#g; s#etcd_key: ""#etcd_key: "/calico-secrets/etcd-key"#g' calico-etcd.yaml
-	 sed  's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"172.16.0.0/12"'@g;' calico-etcd.yaml > /yaml/calico-etcd.yaml
+	 sed -i "s@# etcd-key: null@etcd-key: ${ETCD_KEY}@g; s@# etcd-cert: null@etcd-cert: ${ETCD_CERT}@g; s@# etcd-ca: null@etcd-ca: ${ETCD_CA}@g" /yaml/calico-etcd.yaml
+	 sed -i 's#etcd_ca: ""#etcd_ca: "/calico-secrets/etcd-ca"#g; s#etcd_cert: ""#etcd_cert: "/calico-secrets/etcd-cert"#g; s#etcd_key: ""#etcd_key: "/calico-secrets/etcd-key"#g' /yaml/calico-etcd.yaml
+	 sed -i 's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"172.16.0.0/12"'@g;' /yaml/calico-etcd.yaml
        	 kubectl apply -f /yaml/calico-etcd.yaml
 	
 	 cd
@@ -263,7 +264,7 @@ cat <<-EOF
 cddalico安装完毕，按1回车开始安装coredns,按其他键退出：
 EOF
 read core
-if [ $core -eq 1 ];then
+if [ "$core" == "1" ];then
 	install_coredns
 else
 	exit
@@ -345,17 +346,24 @@ delete_calico(){
 	echo
 	echo "删除calico完成！"
 }
-
+add_machines(){
+	if [ ! -d ~/k8sconfig ];then
+		echo "未检测到k8sconfig文件，请下载后再试！"
+		exit
+	fi
+	sh /root/k8sconfig/binary-deploys/addworker/add.sh
+}
 init(){
 #判断如果有标记文件存在则提示
 if [ -f ~/.~~~k8s_install~~~ ];then
 read -p  "提示，之前执行过初始化，不建议重新执行初始化！按1继续，其他退出
 " str
 fi
-if [ "$str" != 1 ];then
-exit
-fi
-
+cat > /etc/hosts <<-EOF
+$MASTER1 $M1HOSTNAME
+$MASTER2 $M2HOSTNAME
+$MASTER3 $M3HOSTNAME
+EOF
 
 curl -O http://${d_ip}:12888/packages/kubernetes/k8sconfig.tar.gz
 curl -O http://${d_ip}:12888/packages/kubernetes/kernel-lt-5.4.226-1.el7.elrepo.x86_64.rpm
@@ -393,6 +401,7 @@ cat <<-EOF
 	选项4：清除K8S集群的安装，需要在所有节点执行，会彻底删除K8S的所有数据，包括配置文件、K8S程序等，但不会删除调优的参数。
 	选项5：安装clico网络插件
 	选项6：安装coredns服务发现
+	选项7：增加worker节点
 	选项11：删除coredns
 	选项12：删除calico
 EOF
@@ -411,6 +420,7 @@ cat <<-EOF
 			4.执行清理程序彻底清除K8S集群的安装，以便重装使用(但不会清理内核调优过的配置)。
 			5.安装calico插件
 			6.安装coreDNS网络发现
+			7.增加worker节点
 			11.删除calico
 			12.删除coreDNS
 			0.帮助
@@ -436,6 +446,9 @@ case $ttt in
 	;;
 	6)
 		install_coredns	
+	;;
+	7)
+		add_machines
 	;;
 	12)
 		delete_coredns
