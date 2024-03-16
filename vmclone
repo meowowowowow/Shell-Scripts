@@ -21,22 +21,26 @@ DISK_SIZE=5
 
 clone(){
 	#复制模板机磁盘所有数据
-	qemu-img create -f qcow2 -b ${DISK_PATH}${VM_DISK} -o size=${DISK_SIZE}.G  ${DISK_PATH}${NAME}.qcow2
+	qemu-img create -f qcow2 -b ${DISK_PATH}${VM_DISK}  ${DISK_PATH}${NAME}.qcow2
 	#创建挂载点目录
 	mkdir -p ${MOUNT_POINT}${NAME}
 	#进行挂载
-	guestmount -a ${DISK_PATH}${NAME}.qcow2 -m /dev/centos/root ${MOUNT_POINT}${NAME}/
+	guestmount -a ${DISK_PATH}${NAME}.qcow2 -m /dev/centos/root ${MOUNT_POINT}${NAME}
 
 	#修改新虚拟机网络配置	
 	sed -i "s/.*/${NAME}/g"  ${MOUNT_POINT}${NAME}/etc/hostname
 	sed -i "3i\IPADDR=${IP}" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
+	sed -i "3i\NETMASK=255.0.0.0" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
+	sed -i "3i\GATEWAY=$(echo ${IP%.*}.1)" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
 	sed -i "/UUID.*/d" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
 	sed -i "s/ONBOOT=no/ONBOOT=yes/g" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
 	sed -i "s/BOOTPROTO=dhcp/BOOTPROTO=none/g" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0	
+	sed -i "2i\DNS1=223.5.5.5" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
+	sed -i "3i\DNS2=223.6.6.6" ${MOUNT_POINT}${NAME}/etc/sysconfig/network-scripts/ifcfg-eth0
 
 	#取消挂载并删除挂载目录
 	umount ${MOUNT_POINT}${NAME}
-	rm -rf ${MOUNT_POINT}${NAME}
+	rm -rf ${MOUNT_POINT}
 
 	#复制配置文件
 	cp "${CONFIG_PATH}${TEMPLATE_MACHINES}.xml" "${CONFIG_PATH}${NAME}.xml"
@@ -130,4 +134,4 @@ if [ -z "${IP}" ] || [ -z "${NAME}" ] || [ -z "${PORT}" ];then
         exit 99
 fi
 
-#clone
+clone

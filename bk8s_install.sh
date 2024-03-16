@@ -1,14 +1,14 @@
 #!/usr/bin/bash
 
 #此处设置master各机器的主机名和IP，以及负载均衡VIP 
-d_ip=10.9.22.188:12888
+d_ip="10.1.1.188"
 export M1HOSTNAME="master-1"
 export M2HOSTNAME="master-2"
 export M3HOSTNAME="master-3"
-export LOADBALANCER="10.9.22.99"
-export MASTER1="10.9.22.111"
-export MASTER2="10.9.22.112"
-export MASTER3="10.9.22.113"
+export LOADBALANCER="10.1.1.199"
+export MASTER1="10.1.1.111"
+export MASTER2="10.1.1.112"
+export MASTER3="10.1.1.113"
 
 #cat <<-EOF
 #
@@ -32,13 +32,15 @@ if [ ! -d ~/k8sconfig ];then
 	echo "未检测到k8sconfig目录，请检查是否执行过初始化，或者是执行过初始化后删除了该目录！"
 	exit
 fi
-clear_
+
+#共享hosts文件和拷贝ssh密钥
+share
 
 #下载二进制文件
-wget  http://${d_ip}/packages/kubernetes/cfssl_1.6.3_linux_amd64 -O /usr/local/bin/cfssl
-wget  http://${d_ip}/packages/kubernetes/cfssljson_1.6.3_linux_amd64 -O /usr/local/bin/cfssljson
-wget  http://${d_ip}/packages/kubernetes/etcd-v3.5.9-linux-amd64.tar.gz
-wget  http://${d_ip}/packages/kubernetes/kubernetes-server-linux-amd64.tar.gz
+wget  http://${d_ip}:12888/packages/kubernetes/cfssl_1.6.3_linux_amd64 -O /usr/local/bin/cfssl
+wget  http://${d_ip}:12888/packages/kubernetes/cfssljson_1.6.3_linux_amd64 -O /usr/local/bin/cfssljson
+wget  http://${d_ip}:12888/packages/kubernetes/etcd-v3.5.9-linux-amd64.tar.gz
+wget  http://${d_ip}:12888/packages/kubernetes/kubernetes-server-linux-amd64.tar.gz
 
 #分发二进制工具
 tar xf kubernetes-server-linux-amd64.tar.gz --strip-components=3 -C /usr/local/bin/ kubernetes/server/bin/kube{let,ctl,-apiserver,-controller-manager,-scheduler,-proxy}
@@ -192,28 +194,16 @@ cat <<-EOF
 systemctl daemon-reload && systemctl restart etcd kubelet kube-proxy kube-apiserver kube-scheduler kube-controller-manager
 
 EOF
+read
 
 echo "是否立即安装插件？[yes/no]"
 read yn
-case yn in 
-	"yes")
-		install_calico
-	;;
-	"no")
-		exit
-	;;
-	*)
-		echo "退出！"
-		exit
-	;;
-esac	
+if [ "$yn" == "yes" ];then
+	install_calico
+fi
 
+echo "集群安装成功！"
 rm -rf ~/.~~~k8s_install~~~
-}
-
-clear_(){
-	rm -rf ~/kernel-lt*
-	rm -rf ~/k8sconfig.tar.gz
 }
 
 clear_k8s(){
@@ -247,14 +237,15 @@ clear_k8s(){
 
 install_calico(){
 	 cd ~/k8sconfig/binary-deploys
-       	 sed -i 's#etcd_endpoints: "http://<ETCD_IP>:<ETCD_PORT>"#etcd_endpoints: "https://'"${MASTER1}"':2379,https://'"${MASTER2}"':2379,https://'"${MASTER3}"':2379"#g' calico-etcd.yaml
+	mkdir /yaml &>/dev/null
+       	 sed 's#etcd_endpoints: "http://<ETCD_IP>:<ETCD_PORT>"#etcd_endpoints: "https://'"${MASTER1}"':2379,https://'"${MASTER2}"':2379,https://'"${MASTER3}"':2379"#g' ~/k8sconfig/binary-deploys/calico-etcd.yaml  > /yaml/calico-etcd.yaml
 	 ETCD_CA=$(cat /etc/kubernetes/pki/etcd/etcd-ca.pem | base64 | tr -d '\n')
 	 ETCD_CERT=$(cat /etc/kubernetes/pki/etcd/etcd.pem | base64 | tr -d '\n')
 	 ETCD_KEY=$(cat /etc/kubernetes/pki/etcd/etcd-key.pem | base64 | tr -d '\n')
 
-	 sed -i "s@# etcd-key: null@etcd-key: ${ETCD_KEY}@g; s@# etcd-cert: null@etcd-cert: ${ETCD_CERT}@g; s@# etcd-ca: null@etcd-ca: ${ETCD_CA}@g" calico-etcd.yaml
-	 sed -i 's#etcd_ca: ""#etcd_ca: "/calico-secrets/etcd-ca"#g; s#etcd_cert: ""#etcd_cert: "/calico-secrets/etcd-cert"#g; s#etcd_key: ""#etcd_key: "/calico-secrets/etcd-key"#g' calico-etcd.yaml
-	 sed  's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"172.16.0.0/12"'@g;' calico-etcd.yaml > /yaml/calico-etcd.yaml
+	 sed -i "s@# etcd-key: null@etcd-key: ${ETCD_KEY}@g; s@# etcd-cert: null@etcd-cert: ${ETCD_CERT}@g; s@# etcd-ca: null@etcd-ca: ${ETCD_CA}@g" /yaml/calico-etcd.yaml
+	 sed -i 's#etcd_ca: ""#etcd_ca: "/calico-secrets/etcd-ca"#g; s#etcd_cert: ""#etcd_cert: "/calico-secrets/etcd-cert"#g; s#etcd_key: ""#etcd_key: "/calico-secrets/etcd-key"#g' /yaml/calico-etcd.yaml
+	 sed -i 's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"172.16.0.0/12"'@g;' /yaml/calico-etcd.yaml
        	 kubectl apply -f /yaml/calico-etcd.yaml
 	
 	 cd
@@ -263,10 +254,8 @@ cat <<-EOF
 cddalico安装完毕，按1回车开始安装coredns,按其他键退出：
 EOF
 read core
-if [ $core -eq 1 ];then
+if [ "$core" == "1" ];then
 	install_coredns
-else
-	exit
 fi
 }
 
@@ -282,21 +271,7 @@ cat <<-EOF
 coredns服务安装完成，等待拉取镜像完成即可。
 EOF
 }
-s_init(){
-	curl -O http://${d_ip}:12888/packages/kubernetes/k8sconfig.tar.gz
-	tar xf k8sconfig.tar.gz
 
-	sed -i 's/$MASTER1_HOSTNAME/'"$MASTER1"'/; s/$MASTER3_HOSTNAME/'"$MASTER2"'/; s/$MASTER2_HOSTNAME/'"$MASTER3"'/;' /root/k8sconfig/binary-deploys/initialenv.sh
-	for i in $MASTER1 $MASTER2 $MASTER3
-	do
-		scp ~/k8sconfig/binary-deploys/initialenv.sh $i:~/
-	done	
-	echo "在所有机器执行:
-
-	      sh ~/initialenv.sh
-
-之后即可开始进行安装K8S集群。"
-}
 
 delete_coredns(){
 	kubectl delete service kube-dns -n kube-system
@@ -311,6 +286,7 @@ delete_coredns(){
 	echo
 	echo "coreDNS删除完成！"
 }
+
 delete_calico(){
 	# 删除DaemonSet
 	kubectl delete daemonset -n kube-system calico-node
@@ -346,53 +322,158 @@ delete_calico(){
 	echo "删除calico完成！"
 }
 
-init(){
-#判断如果有标记文件存在则提示
-if [ -f ~/.~~~k8s_install~~~ ];then
-read -p  "提示，之前执行过初始化，不建议重新执行初始化！按1继续，其他退出
-" str
-fi
-if [ "$str" != 1 ];then
-exit
-fi
+add_machines(){
+	if [ ! -d ~/k8sconfig ];then
+		echo "未检测到k8sconfig文件，请下载后再试！"
+		exit
+	fi
+	sh /root/k8sconfig/binary-deploys/addworker/add.sh $d_ip
+}
 
+share(){
+rm -rf ~/.ssh
 
-curl -O http://${d_ip}:12888/packages/kubernetes/k8sconfig.tar.gz
-curl -O http://${d_ip}:12888/packages/kubernetes/kernel-lt-5.4.226-1.el7.elrepo.x86_64.rpm
-curl -O http://${d_ip}:12888/packages/kubernetes/kernel-lt-devel-5.4.226-1.el7.elrepo.x86_64.rpm
-tar xf k8sconfig.tar.gz
-
-sed -i 's/$MASTER1_HOSTNAME/'"$MASTER1"'/; s/$MASTER3_HOSTNAME/'"$MASTER2"'/; s/$MASTER2_HOSTNAME/'"$MASTER3"'/;' /root/k8sconfig/binary-deploys/initialenv.sh
+ssh-keygen -t rsa -b 4096 -N "" -C "k8s@qq.com" -f ~/.ssh/id_rsa
 for i in $MASTER1 $MASTER2 $MASTER3
 do
-scp ~/k8sconfig/binary-deploys/initialenv.sh $i:~/
-scp kernel-lt-5.4.226-1.el7.elrepo.x86_64.rpm $i:/root/
-scp kernel-lt-devel-5.4.226-1.el7.elrepo.x86_64.rpm $i:/root/
-done
+ssh-copy-id root@$i
+done &
+wait
 
-#创建标记文件，用于提醒原来是否执行过初始化
-touch ~/.~~~k8s_install~~~
-cat <<-EOF
+rm -rf /etc/hosts
+cat > /etc/hosts <<-EOF
+$MASTER1 $M1HOSTNAME
+$MASTER2 $M2HOSTNAME
+$MASTER3 $M3HOSTNAME
+EOF
 
-在包括本节点内所有节点执行：
-bash initialenv.sh
-yum -y localinstall kernel-lt-*
+for i in $MASTER1 $MASTER2 $MASTER3
+do
+	scp /etc/hosts $i:/etc/hosts
+done &
+wait
+}
+
+kernel_upgrades(){
+#共享hosts文件和ssh密钥
+share
+
+#获取系统内核文件
+curl -O http://${d_ip}:12888/packages/kubernetes/kernel-lt-5.4.226-1.el7.elrepo.x86_64.rpm
+curl -O http://${d_ip}:12888/packages/kubernetes/kernel-lt-devel-5.4.226-1.el7.elrepo.x86_64.rpm
+
+for i in $MASTER2 $MASTER3
+do
+scp kernel-lt* root@$i:/root/
+ssh root@$i "yum localinstall -y kernel-lt*"
+
+ssh root@${i} "grub2-set-default 0 && grub2-mkconfig -o /etc/grub2.cfg"
+ssh root@${i} 'grubby --args="user_namespace.enable=1" --update-kernel="$(grubby --default-kernel)"'
+ssh root@${i} "rm -rf kernel-lt*"
+ssh root@${i} "reboot"
+
+echo "已经为$i 机器升级内核，并将其重启！"
+done & 
+wait
+
+for j in $MASTER2 $MASTER3
+do
+	echo "正在探测${j}是否启动..."
+	for i in {1..30}
+	do
+		echo "第$i 次..!"
+		ping ${j} -c1 &>/dev/null
+		if [ $? -eq 0 ];then
+        		echo "探测到目标机器已经启动，继续操作..."
+        		sleep 3
+        		break
+		fi
+		if [ $i -eq 30 ];then
+        		echo "目标机器 $j 仍然没有启动，请检查该机器是否正常，或者IP是否更换！"
+        		exit
+		fi
+	done
+done 
+
+echo "正在为本机升级内核。。。"
+yum localinstall -y kernel-lt* &>/dev/null
+if [ $? -eq 0 ];then
+	echo "+ kernel 5.4.226-1.el7.elrepo.x86_64 !"
+else
+	echo "升级内核失败！"
+	exit
+fi
 grub2-set-default 0 && grub2-mkconfig -o /etc/grub2.cfg
 grubby --args="user_namespace.enable=1" --update-kernel="$(grubby --default-kernel)"
-reboot
+rm -rf kernel-lt*
 
-EOF
+echo '内核升级成功！之后便可执行 "2.简单初始化" ！'
+echo "三秒后重启..."
+for i in {3..0}
+do
+	sleep 1
+	echo $i
+	if [ $i -eq 0 ];then
+		reboot
+	fi
+done
+}
+
+init(){
+
+share
+
+if [ ! -d ~/k8sconfig ];then
+	echo "k8sconfig	不存在，正在下载..."
+	curl -I http://${d_ip}:12888 | grep "200"
+	if [ $? -eq 0 ];then
+		echo "检测到网站服务器没开，请打开后重新执行初始化！"
+		exit
+	else
+		curl -O http://${d_ip}:12888/packages/kubernetes/k8sconfig.tar.gz	
+	fi
+fi
+
+test_ip={grep $MASTER2 /etc/hosts}
+ping -c1 $test_ip &>/dev/null
+if [ $? -ne 0 ];then
+	echo "预设IP地址有误！请修改此脚本开头IP后重试！"
+	exit
+fi
+
+for i in $MASTER1 $MASTER2 $MASTER3
+do
+	scp /root/k8sconfig/binary-deploys/initialenv.sh $i:/root/
+	ssh root@$i "bash /root/initialenv.sh"	
+	ssh root@$i "rm -rf /root/initialenv.sh"
+done &
+wait
+
+rpm -qa | grep "docker*"
+if [ $? -eq 0 ] && [ -d /etc/kubernetes/manifests ] && [ -d /etc/kubernetes/pki ] && [ -d /etc/systemd/system/kubelet.service.d ] && [ -d /var/lib/kubelet ] && [ -d /var/log/kubernetes ] && [ /etc/etcd/ssl ];then
+	echo "初始化完成，可以开始安装K8S集群,是否开始安装？[y/n]"
+	read yn
+	if [ "$yn" == "y" ];then
+		restart_conf
+	else
+		echo "退出！"
+	fi
+else
+	echo "初始化失败！请检查/root/k8sconfig/binary-deploys/initialenv.sh 脚本是否存在及正常后重新尝试！"
+	exit
+fi	
 }
 
 help_(){
 cat <<-EOF
 
 	选项1：未安装过K8S的纯净电脑，可以先按照：1-2的顺序正常进行安装K8S集群。（主节点执行即可）
-	选项2：安装过K8S集群，并且执行过4选项清除过K8S的安装后，想要再次安装，可以执行此步骤进行简单初始化。（主节点执行即可）
+	选项2：安装过K8S集群，并且执行过4选项清除过K8S的安装后，想要再次安装，可以执行此步骤进行简单初始化。（主节点执行即可,不升级内核）
 	选项3：在执行过1或者2的初始化后，选择此项继续安装K8S集群，主节点执行即可，根据提示操作。
 	选项4：清除K8S集群的安装，需要在所有节点执行，会彻底删除K8S的所有数据，包括配置文件、K8S程序等，但不会删除调优的参数。
 	选项5：安装clico网络插件
 	选项6：安装coredns服务发现
+	选项7：增加worker节点
 	选项11：删除coredns
 	选项12：删除calico
 EOF
@@ -405,12 +486,13 @@ fi
 
 cat <<-EOF
 
-			1.执行初始化。
-			2.执行简单初始化。
+			1.执行三个主节点内核升级。
+			2.执行系统初始化。
 			3.开始安装K8S集群(必须在初始化之后)。
 			4.执行清理程序彻底清除K8S集群的安装，以便重装使用(但不会清理内核调优过的配置)。
 			5.安装calico插件
 			6.安装coreDNS网络发现
+			7.增加worker节点
 			11.删除calico
 			12.删除coreDNS
 			0.帮助
@@ -420,10 +502,10 @@ read ttt
 
 case $ttt in
 	1)
-		init	
+		kernel_upgrades
 	;;
 	2)
-		s_init
+		init
 	;;
 	3)
 		restart_conf
@@ -436,6 +518,9 @@ case $ttt in
 	;;
 	6)
 		install_coredns	
+	;;
+	7)
+		add_machines
 	;;
 	12)
 		delete_coredns
